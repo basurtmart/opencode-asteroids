@@ -268,6 +268,18 @@ class Ship {
       ctx.stroke();
     }
 
+    // Escudo visual (pulsante)
+    if (shieldTimer > 0 && this.invincible <= 0) {
+      const pulse = Math.sin(Date.now() * 0.006) * 0.15 + 0.85;
+      ctx.strokeStyle = `rgba(0, 200, 255, ${(0.7 * pulse).toFixed(2)})`;
+      ctx.fillStyle = `rgba(0, 200, 255, ${(0.15 * pulse).toFixed(2)})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, 24, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
     ctx.restore();
   }
 }
@@ -347,6 +359,7 @@ class Particle {
 // ── Power-up (velocidad) ──────────────────────────────────────────────────────
 const SPEED_BOOST = 5;        // duración en segundos
 const TRIPLE_SHOT_DURATION = 5; // duración en segundos
+const SHIELD_DURATION = 8;      // duración del escudo en segundos
 
 class PowerUp {
   constructor(x, y, type = 'speed') {
@@ -371,8 +384,9 @@ class PowerUp {
   draw() {
     const oy = Math.sin(this.bob) * 2;
     const isTriple = this.type === 'triple';
-    const color = isTriple ? '#0f0' : '#0ff';
-    const haloAlpha = isTriple ? 'rgba(0,255,0,0.15)' : 'rgba(0,255,255,0.15)';
+    const isShield = this.type === 'shield';
+    const color = isTriple ? '#0f0' : isShield ? '#ff0' : '#0ff';
+    const haloAlpha = isTriple ? 'rgba(0,255,0,0.15)' : isShield ? 'rgba(255,255,0,0.15)' : 'rgba(0,255,255,0.15)';
 
     ctx.save();
     ctx.translate(this.x, this.y + oy);
@@ -394,8 +408,18 @@ class PowerUp {
         ctx.arc(i * 5, 0, 2, 0, Math.PI * 2);
         ctx.fill();
       }
+    } else if (isShield) {
+      // Icono de escudo (forma de diamante)
+      ctx.beginPath();
+      ctx.moveTo(0, -8);
+      ctx.lineTo(6, 0);
+      ctx.lineTo(0, 8);
+      ctx.lineTo(-6, 0);
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
     } else {
-      // Rayo (velocidad, sin cambios)
+      // Rayo (velocidad)
       ctx.beginPath();
       ctx.moveTo(3, -8);
       ctx.lineTo(-4, 1);
@@ -411,14 +435,16 @@ class PowerUp {
   }
 }
 
+
 // ── Estado del juego ──────────────────────────────────────────────────────────
 let ship, bullets, asteroids, particles, powerUps, shootingStars;
 let score, lives, level;
 let state;      // 'menu' | 'playing' | 'dead' | 'gameover'
 let deadTimer;
-let speedTimer;     // tiempo restante del power-up de velocidad
+let speedTimer;      // tiempo restante del power-up de velocidad
 let tripleShotTimer; // tiempo restante del power-up de triple disparo
-let starTimer;      // temporizador de aparición de estrellas fugaces
+let shieldTimer;     // tiempo restante del power-up de escudo
+let starTimer;       // temporizador de aparición de estrellas fugaces
 
 // ── Skins ─────────────────────────────────────────────────────────────────────
 let selectedSkin = 0;
@@ -472,6 +498,7 @@ function initGame() {
   state = 'menu';
   speedTimer = 0;
   tripleShotTimer = 0;
+  shieldTimer = 0;
   starTimer = rand(2, 5);
 }
 
@@ -482,6 +509,7 @@ function nextLevel() {
   powerUps = [];
   speedTimer = 0;
   tripleShotTimer = 0;
+  shieldTimer = 0;
   ship.reset();
   spawnAsteroids(3 + level);
 }
@@ -496,6 +524,7 @@ function killShip() {
   powerUps = [];
   speedTimer = 0;
   tripleShotTimer = 0;
+  shieldTimer = 0;
   lives--;
   if (lives <= 0) {
     state = 'gameover';
@@ -561,8 +590,10 @@ function update(dt) {
         score += POINTS[a.size];
         explode(a.x, a.y, a.size * 5);
         if (Math.random() < 0.15) {
-          const type = Math.random() < 0.5 ? 'triple' : 'speed';
-          powerUps.push(new PowerUp(a.x, a.y, type));
+          const r = Math.random();
+          if (r < 0.33) powerUps.push(new PowerUp(a.x, a.y, 'triple'));
+          else if (r < 0.66) powerUps.push(new PowerUp(a.x, a.y, 'shield'));
+          else powerUps.push(new PowerUp(a.x, a.y)); // speed (default)
         }
         newAsteroids.push(...a.split());
       }
@@ -589,8 +620,15 @@ function update(dt) {
   if (ship.invincible <= 0) {
     for (const a of asteroids) {
       if (dist(ship, a) < ship.radius + a.radius * 0.82) {
-        killShip();
-        break;
+        if (shieldTimer > 0) {
+          a.dead = true;
+          score += POINTS[a.size];
+          explode(a.x, a.y, a.size * 5);
+          newAsteroids.push(...a.split());
+        } else {
+          killShip();
+          break;
+        }
       }
     }
   }
@@ -599,8 +637,14 @@ function update(dt) {
   if (ship.invincible <= 0) {
     for (const s of shootingStars) {
       if (dist(ship, s) < ship.radius + s.radius) {
-        killShip();
-        break;
+        if (shieldTimer > 0) {
+          s.dead = true;
+          score += STAR_POINTS;
+          explode(s.x, s.y, 6);
+        } else {
+          killShip();
+          break;
+        }
       }
     }
   }
@@ -618,7 +662,8 @@ function update(dt) {
     for (const p of powerUps) {
       if (dist(ship, p) < ship.radius + p.radius) {
         p.dead = true;
-        if (p.type === 'triple') tripleShotTimer = TRIPLE_SHOT_DURATION;
+        if (p.type === 'shield') shieldTimer = SHIELD_DURATION;
+        else if (p.type === 'triple') tripleShotTimer = TRIPLE_SHOT_DURATION;
         else speedTimer = SPEED_BOOST;
         explode(p.x, p.y, 10);
       }
@@ -627,6 +672,7 @@ function update(dt) {
   powerUps = powerUps.filter(p => !p.dead);
   if (speedTimer > 0) speedTimer = Math.max(0, speedTimer - dt);
   if (tripleShotTimer > 0) tripleShotTimer = Math.max(0, tripleShotTimer - dt);
+  if (shieldTimer > 0) shieldTimer = Math.max(0, shieldTimer - dt);
 
   // Nivel completado
   if (asteroids.length === 0) nextLevel();
@@ -682,7 +728,7 @@ function drawHUD() {
   if (tripleShotTimer > 0) {
     const BW = 90;
     const x0 = W - 16 - BW;
-    const yOff = speedTimer > 0 ? 20 : 0;
+    const yOff = (speedTimer > 0 ? 20 : 0);
     ctx.textAlign = 'right';
     ctx.fillStyle = '#0f0';
     ctx.font = '13px monospace';
@@ -692,6 +738,22 @@ function drawHUD() {
     ctx.fillRect(x0, 48 + yOff, BW, 5);
     ctx.fillStyle = '#0f0';
     ctx.fillRect(x0, 48 + yOff, BW * (tripleShotTimer / TRIPLE_SHOT_DURATION), 5);
+  }
+
+  // Indicador del power-up de escudo activo
+  if (shieldTimer > 0) {
+    const BW = 90;
+    const x0 = W - 16 - BW;
+    const yOff = (speedTimer > 0 ? 20 : 0) + (tripleShotTimer > 0 ? 20 : 0);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#ff0';
+    ctx.font = '13px monospace';
+    ctx.fillText('ESCUDO', W - 16, 40 + yOff);
+
+    ctx.fillStyle = 'rgba(255,255,0,0.25)';
+    ctx.fillRect(x0, 48 + yOff, BW, 5);
+    ctx.fillStyle = '#ff0';
+    ctx.fillRect(x0, 48 + yOff, BW * (shieldTimer / SHIELD_DURATION), 5);
   }
 }
 
