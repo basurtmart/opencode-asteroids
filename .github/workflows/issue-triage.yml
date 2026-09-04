@@ -1,0 +1,88 @@
+name: Issue Triage
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Detect labels and enrich issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ISSUE_NUMBER=${{ github.event.issue.number }}
+          ISSUE_TITLE="${{ github.event.issue.title }}"
+          ISSUE_BODY="${{ github.event.issue.body }}"
+
+          # --- Detectar tipo de issue por keywords ---
+          LABELS=""
+
+          if echo "$ISSUE_TITLE $ISSUE_BODY" | grep -qiE '\b(bug|error|crash|falla|no funciona|broken|issue|problema)\b'; then
+            LABELS="bug"
+          fi
+
+          if echo "$ISSUE_TITLE $ISSUE_BODY" | grep -qiE '\b(feature|añadir|add|nueva?|new|implementar?|implement)\b'; then
+            LABELS="${LABELS:+$LABELS,}feature"
+          fi
+
+          if echo "$ISSUE_TITLE $ISSUE_BODY" | grep -qiE '\b(improve|mejorar|optimizar|enhance|refactor|upgrade)\b'; then
+            LABELS="${LABELS:+$LABELS,}enhancement"
+          fi
+
+          if echo "$ISSUE_TITLE $ISSUE_BODY" | grep -qiE '(\¿\?|^\?$|\bquestion\b|\bhow to\b|\bcomo\b|\bcómo\b|\bduda\b)'; then
+            LABELS="${LABELS:+$LABELS,}question"
+          fi
+
+          # Default: question si no se detectó nada
+          LABELS="${LABELS:-question}"
+
+          echo "Labels detectadas: $LABELS"
+
+          # --- Crear labels si no existen ---
+          for LABEL in bug feature enhancement question; do
+            if ! gh label list --search "$LABEL" --json name -q '.[].name' | grep -qx "$LABEL"; then
+              case $LABEL in
+                bug)         COLOR="d73a4a"; DESC="Algo no funciona como se espera" ;;
+                feature)     COLOR="0e8a16"; DESC="Nueva funcionalidad o solicitud" ;;
+                enhancement) COLOR="a2eeef"; DESC="Mejora a funcionalidad existente" ;;
+                question)    COLOR="d876e3"; DESC="Pregunta o duda general" ;;
+              esac
+              gh label create "$LABEL" --color "$COLOR" --description "$DESC"
+            fi
+          done
+
+          # --- Asignar labels al issue ---
+          gh issue edit "$ISSUE_NUMBER" --add-label "$LABELS"
+
+          # --- Agregar info contextual al body ---
+          CURRENT_BODY=$(gh issue view "$ISSUE_NUMBER" --json body -q '.body')
+
+          ENRICHED_BODY="$CURRENT_BODY
+
+---
+
+### Información del proyecto
+
+- **Tech stack:** HTML5 Canvas + JavaScript vanilla (ES6+). Sin framework, bundler ni dependencias.
+- **Archivos relevantes:** \`game.js\` (toda la lógica y rendering, ~866 líneas), \`index.html\` (canvas + estilos).
+- **Cómo ejecutar:** Abrir \`index.html\` en un navegador o \`npx serve .\` → \`http://localhost:3000\`.
+- **Estado del juego:** Machine state con modos \`menu\`, \`playing\`, \`dead\`, \`gameover\`.
+- **Idioma del código:** Comentarios y strings de UI en español."
+
+          gh issue edit "$ISSUE_NUMBER" --body "$ENRICHED_BODY"
+
+          # --- Comentario con checklist de revisión ---
+          gh issue comment "$ISSUE_NUMBER" --body "## Checklist de revisión
+
+- [ ] Pasos para reproducir el problema
+- [ ] Browser y sistema operativo usado
+- [ ] Screenshots o video (si aplica)
+- [ ] Versión del repo / commit
+- [ ] ¿Se reproduce consistentemente?
+
+> *Este checklist fue agregado automáticamente por el workflow de triage.*"
