@@ -187,7 +187,8 @@ class Ship {
     this.angle = -Math.PI / 2;
     this.vx = 0;
     this.vy = 0;
-    this.radius = 12;
+    const skin = SKINS[selectedSkin];
+    this.radius = skin.radius || 12;
     this.thrusting = false;
     this.invincible = 3;
     this.shootCooldown = 0;
@@ -222,7 +223,8 @@ class Ship {
   tryShoot() {
     if (this.shootCooldown > 0 || this.dead) return [];
     this.shootCooldown = 0.2;
-    const NOSE = 21;
+    const scale = this.radius / 12;
+    const NOSE = 21 * scale;
     const ox = this.x + Math.cos(this.angle) * NOSE;
     const oy = this.y + Math.sin(this.angle) * NOSE;
     if (tripleShotTimer > 0) {
@@ -321,6 +323,14 @@ const SKINS = [
     verts: [[14, 0], [7, -10], [-7, -10], [-14, 0], [-7, 10], [7, 10]],
     color: '#0f0',
     flame: [[-8, -4], [-8, 4]],
+  },
+  {
+    name: 'COLOSAL',
+    verts: [[40, 0], [-24, -18], [-14, 0], [-24, 18]],
+    color: '#a0f',
+    flame: [[-16, -8], [-16, 8]],
+    radius: 24,
+    scoreMultiplier: 2,
   },
 ];
 
@@ -581,13 +591,14 @@ function update(dt) {
   shootingStars = shootingStars.filter(s => !s.dead);
 
   // Bala vs asteroide
+  const scoreMult = SKINS[selectedSkin].scoreMultiplier || 1;
   const newAsteroids = [];
   for (const b of bullets) {
     for (const a of asteroids) {
       if (!a.dead && !b.dead && dist(b, a) < a.radius) {
         b.dead = true;
         a.dead = true;
-        score += POINTS[a.size];
+        score += POINTS[a.size] * scoreMult;
         explode(a.x, a.y, a.size * 5);
         if (Math.random() < 0.15) {
           const r = Math.random();
@@ -608,7 +619,7 @@ function update(dt) {
       if (!s.dead && !b.dead && dist(b, s) < s.radius) {
         b.dead = true;
         s.dead = true;
-        score += STAR_POINTS;
+        score += STAR_POINTS * scoreMult;
         explode(s.x, s.y, 6);
       }
     }
@@ -622,7 +633,7 @@ function update(dt) {
       if (dist(ship, a) < ship.radius + a.radius * 0.82) {
         if (shieldTimer > 0) {
           a.dead = true;
-          score += POINTS[a.size];
+          score += POINTS[a.size] * scoreMult;
           explode(a.x, a.y, a.size * 5);
           newAsteroids.push(...a.split());
         } else {
@@ -639,7 +650,7 @@ function update(dt) {
       if (dist(ship, s) < ship.radius + s.radius) {
         if (shieldTimer > 0) {
           s.dead = true;
-          score += STAR_POINTS;
+          score += STAR_POINTS * scoreMult;
           explode(s.x, s.y, 6);
         } else {
           killShip();
